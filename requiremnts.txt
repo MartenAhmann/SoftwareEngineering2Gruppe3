@@ -1,0 +1,16 @@
+# === Core Libraries ===
+streamlit>=1.32.0
+torch>=2.2.0
+torchvision>=0.17.0
+numpy>=1.26.0
+opencv-python>=4.9.0.80
+Pillow>=10.0.0
+matplotlib>=3.8.0
+
+# === Video + WebRTC ===
+av>=11.0.0
+streamlit-webrtc>=0.47.1
+
+# === Optional (Empfohlen für Stabilität & Performance) ===
+protobuf>=4.25.0
+typing-extensions>=4.9.0
