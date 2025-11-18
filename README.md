@@ -1,13 +1,19 @@
+## 0. Starten der Anwendung
+- Admin-View (Streamlit): 
+``streamlit run ui_admin_streamlit/app.py``
+- Daraus lässt sich auch der Kino-View starten 
+
+
 ## 1. Abhängigkeiten
 
 Mit `pip` zu installierende Pakete (z. B. in einem venv):
-streamlit
-opencv-python
-numpy
-pillow
-torch
-torchvision
-kivy
+- streamlit
+- opencv-python
+- numpy
+- pillow
+- torch
+- torchvision
+- kivy
 
 ## 2. Grundidee: 3‑Layer‑Architektur
 
