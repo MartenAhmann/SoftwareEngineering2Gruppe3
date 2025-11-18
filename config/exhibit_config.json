@@ -1,0 +1,69 @@
+{
+  "exhibit_id": "cnn_museum_01",
+  "model": {
+    "name": "resnet18",
+    "weights": "imagenet"
+  },
+  "ui": {
+    "title": "Wie ein neuronales Netz sieht",
+    "language": "de",
+    "layers": [
+      {
+        "id": "layer1_conv1",
+        "order": 1,
+        "button_label": "Frühe Kanten",
+        "title_bar_label": "Layer 1 – Kanten",
+        "description": "In dieser Schicht erkennt das Netz einfache Kanten und Helligkeitsübergänge.",
+        "viz_preset_id": "preset_layer1",
+        "metadata": {
+          "favorites": [
+            {
+              "name": "teste",
+              "layer_id": "layer1_conv1",
+              "preset": {
+                "channels": [
+                  0,
+                  24
+                ],
+                "k": null,
+                "blend_mode": "max",
+                "cmap": "viridis",
+                "overlay": true,
+                "alpha": 0.25,
+                "model_layer_id": "conv1"
+              }
+            },
+            {
+              "name": "taa",
+              "layer_id": "layer1_conv1",
+              "preset": {
+                "channels": [
+                  10
+                ],
+                "k": null,
+                "blend_mode": "mean",
+                "cmap": "viridis",
+                "overlay": false,
+                "alpha": 0.5,
+                "model_layer_id": "conv1"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "viz_presets": [
+    {
+      "id": "preset_layer1",
+      "layer_id": "layer1_conv1",
+      "channels": [
+        0
+      ],
+      "blend_mode": "mean",
+      "overlay": false,
+      "alpha": 0.6,
+      "cmap": "viridis"
+    }
+  ]
+}
