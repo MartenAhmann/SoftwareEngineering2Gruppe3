@@ -60,7 +60,6 @@ Beide Views greifen lesend/schreibend auf dieselbe Config-Datei zu und teilen si
 - Verbesserung der Konfigurationsmöglichkeiten:
   - Klarere Trennung zwischen Einzel-Channel-Ansicht und zusammengelegten Channels.
   - Mehr Optionen für Blend-Modi und Colormaps.
-- Fehlerbehebung beim Erstellen und Laden von Favoriten:
   - Robuste Speicherung in `exhibit_config.json`.
   - Saubere Behandlung zusätzlicher Metadaten (z. B. `metadata.favorites`).
 - Optimierung der Liste der überlagerten Channels:
