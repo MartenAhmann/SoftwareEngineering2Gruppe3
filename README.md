@@ -1,7 +1,7 @@
 ## 0. Starten der Anwendung
 - Admin-View (Streamlit): 
 ``streamlit run ui_admin_streamlit/app.py``
-- Daraus lässt sich auch der Kino-View starten 
+- Daraus lässt sich auch der Kino-View starten.
 
 
 ## 1. Abhängigkeiten
