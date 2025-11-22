@@ -1,34 +1,20 @@
 from __future__ import annotations
 
-from typing import List
+"""Wrapper-Modul für Kamera-Funktionen in der Streamlit-Feature-View.
 
-import cv2
+Die eigentliche Implementierung liegt in ``core.camera_service``.
+Dieses Modul re-exportiert nur die dort definierten Funktionen, damit
+bestehende Importe aus ``ui_admin_streamlit.feature_view.camera``
+weiter funktionieren.
+"""
+
+from typing import List, Tuple
+
 import numpy as np
 
+from core.camera_service import detect_cameras, take_snapshot
 
-def detect_cameras(max_tested: int = 5) -> List[int]:
-    """
-    Testet die ersten max_tested Kamera-IDs und gibt die gefundenen zurück.
-    """
-    cams: List[int] = []
-    for cam_id in range(max_tested):
-        cap = cv2.VideoCapture(cam_id)
-        if cap is not None and cap.isOpened():
-            cams.append(cam_id)
-            cap.release()
-    return cams
-
-
-def take_snapshot(cam_id: int) -> np.ndarray | None:
-    """
-    Nimmt ein einzelnes Bild von der angegebenen Kamera auf.
-    Rückgabe: RGB-Array oder None bei Fehler.
-    """
-    cap = cv2.VideoCapture(cam_id)
-    if not cap.isOpened():
-        return None
-    ok, frame = cap.read()
-    cap.release()
-    if not ok or frame is None:
-        return None
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+__all__ = [
+    "detect_cameras",
+    "take_snapshot",
+]

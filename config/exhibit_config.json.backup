@@ -92,23 +92,6 @@
                 "alpha": 0.69,
                 "model_layer_id": "layer4"
               }
-            },
-            {
-              "name": "conv1_check",
-              "layer_id": "layer1_conv1",
-              "preset": {
-                "channels": [
-                  48,
-                  5,
-                  23
-                ],
-                "k": null,
-                "blend_mode": "mean",
-                "cmap": "viridis",
-                "overlay": true,
-                "alpha": 0.5,
-                "model_layer_id": "conv1"
-              }
             }
           ]
         }

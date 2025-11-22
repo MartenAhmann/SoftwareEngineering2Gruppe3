@@ -112,7 +112,28 @@ class VizEngine:
     def _normalize(self, fmap: np.ndarray) -> np.ndarray:
         """
         fmap -> skaliert auf 0-255 uint8
+
+        Behandelt Edge Cases:
+        - NaN-Werte werden auf 0 gesetzt
+        - Inf-Werte werden geclippt auf min/max der gültigen Werte
+        - Reine 0-Aktivierungen bleiben 0
         """
+        # NaN-Handhabung: NaNs auf 0 setzen
+        if np.isnan(fmap).any():
+            fmap = np.nan_to_num(fmap, nan=0.0)
+
+        # Inf-Handhabung: auf min/max der gültigen Werte clippen
+        if np.isinf(fmap).any():
+            valid_mask = ~np.isinf(fmap)
+            if valid_mask.any():
+                valid_min = fmap[valid_mask].min()
+                valid_max = fmap[valid_mask].max()
+                fmap = np.clip(fmap, valid_min, valid_max)
+            else:
+                # Alle Werte sind inf -> auf 0 setzen
+                fmap = np.zeros_like(fmap)
+
+        # Min-Max-Normalisierung
         fmap = fmap - fmap.min()
         maxv = fmap.max()
         fmap = fmap / maxv if maxv > 0 else fmap

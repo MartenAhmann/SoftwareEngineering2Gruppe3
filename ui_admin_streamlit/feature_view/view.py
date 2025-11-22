@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Dict, Any, List
 
 import cv2
-import numpy as np
 import streamlit as st
 
 from config.models import VizPreset
@@ -17,9 +16,7 @@ from .state import init_state, layer_state
 
 
 def render() -> None:
-    """
-    Haupt-UI der Feature-View.
-    """
+    """Haupt-UI der Feature-View."""
     init_state()
 
     cfg = load_config()
@@ -40,20 +37,37 @@ def render() -> None:
 
     st_data = layer_state(layer_key)
 
+    # Event-Flags für Favoriten-Laden initialisieren
+    favorite_load_flags = st.session_state.feature_favorite_load_flags
+    if layer_key not in favorite_load_flags:
+        favorite_load_flags[layer_key] = False
+
     # ------------------------------
-    # Top-Reihe: Favorit laden (links)
+    # Top-Reihe: Favorit auswählen / laden / löschen
     # ------------------------------
     top_left, top_right = st.columns([3, 1])
     with top_left:
         favs = get_layer_favorites(raw_cfg, ui_layer.id)
         fav_names = [f.get("name", f"fav_{i}") for i, f in enumerate(favs)]
         selected_fav_name = st.selectbox(
-            "Favorit laden",
+            "Favorit wählen",
             ["–"] + fav_names,
             index=0,
             key=f"{layer_key}_fav_select_snapshot",
-            help="Gespeicherte Presets für diesen UI-Layer laden.",
+            help="Gespeicherte Presets für diesen UI-Layer auswählen.",
         )
+
+        # Expliziter Button zum einmaligen Anwenden des ausgewählten Favoriten
+        load_clicked = st.button(
+            "Favorit laden",
+            key=f"{layer_key}_apply_fav_snapshot",
+            help=(
+                "Übernimmt den ausgewählten Favoriten einmalig in den aktuellen UI-Zustand. "
+                "Weitere UI-Änderungen bleiben erhalten, bis erneut explizit ein Favorit geladen wird."
+            ),
+        )
+        if load_clicked and selected_fav_name != "–":
+            favorite_load_flags[layer_key] = True
 
     with top_right:
         # Kleiner "Minus"-Button zum Löschen des aktuell gewählten Favoriten
@@ -72,69 +86,67 @@ def render() -> None:
                 # Auswahl im Dropdown zurücksetzen
                 st.rerun()
 
-    if selected_fav_name != "–":
-        for f in favs:
-            if f.get("name") == selected_fav_name:
-                preset = f.get("preset", {})
+    # ------------------------------
+    # Einmalige Anwendung eines Favoriten bei gesetztem Event-Flag
+    # ------------------------------
+    if favorite_load_flags.get(layer_key):
+        if selected_fav_name == "–":
+            # Nichts zu laden, Flag zurücksetzen
+            favorite_load_flags[layer_key] = False
+        else:
+            for f in favs:
+                if f.get("name") == selected_fav_name:
+                    preset = f.get("preset", {})
 
-                # -----------------------------
-                # Mode & Channels & K
-                # -----------------------------
-                if preset.get("channels") == "topk":
-                    st_data["mode"] = "Top-K"
-                    # k aus dem Preset oder Fallback 3
-                    k_val = preset.get("k") if preset.get("k") is not None else st_data.get("k", 3)
-                else:
-                    st_data["mode"] = "Ausgewählte Channels"
-                    # Channels-Liste aus dem Preset
-                    st_data["channels"] = (
-                        preset.get("channels", [0]) if isinstance(preset.get("channels"), list) else [0]
+                    # Mode & Channels & K
+                    if preset.get("channels") == "topk":
+                        st_data["mode"] = "Top-K"
+                        # k aus dem Preset oder Fallback 3
+                        k_val = preset.get("k") if preset.get("k") is not None else st_data.get("k", 3)
+                    else:
+                        st_data["mode"] = "Ausgewählte Channels"
+                        # Channels-Liste aus dem Preset
+                        st_data["channels"] = (
+                            preset.get("channels", [0]) if isinstance(preset.get("channels"), list) else [0]
+                        )
+                        # Für Channels-Modus: letztes k beibehalten oder Default 3,
+                        # aber NICHT None aus dem Preset übernehmen
+                        k_val = st_data.get("k", 3)
+
+                    st_data["k"] = k_val
+
+                    # Blend-Mode, Cmap, Overlay, Alpha
+                    st_data["blend_mode"] = preset.get("blend_mode", "mean")
+                    st_data["cmap"] = preset.get("cmap", "viridis")
+                    st_data["overlay"] = preset.get("overlay", True)
+                    st_data["alpha"] = float(preset.get("alpha", 0.5))
+
+                    # Name & Model-Layer
+                    st_data["fav_name"] = f.get("name", "")
+                    new_layer_id = preset.get("model_layer_id", st_data.get("model_layer_id", "conv1"))
+                    st_data["model_layer_id"] = new_layer_id
+
+                    # Streamlit-Widget-State setzen
+                    st.session_state[f"{layer_key}_model_layer"] = new_layer_id
+                    st.session_state[f"{layer_key}_mode_snapshot"] = st_data["mode"]
+                    if st_data["mode"] == "Top-K":
+                        st.session_state[f"{layer_key}_k_snapshot"] = int(st_data["k"])
+                    st.session_state[f"{layer_key}_blend_snapshot"] = st_data["blend_mode"]
+                    st.session_state[f"{layer_key}_cmap_snapshot"] = st_data["cmap"]
+                    st.session_state[f"{layer_key}_overlay_snapshot"] = bool(st_data["overlay"])
+                    st.session_state[f"{layer_key}_alpha_snapshot"] = float(st_data["alpha"])
+
+                    # Bearbeitungs-Kontext setzen
+                    st_data["editing_favorite_name"] = f.get("name")
+
+                    st.success(
+                        f"Favorit '{selected_fav_name}' wurde angewendet. "
+                        "Änderungen können jetzt bearbeitet und gespeichert werden."
                     )
-                    # Für Channels-Modus: letztes k beibehalten oder Default 3,
-                    # aber NICHT None aus dem Preset übernehmen
-                    k_val = st_data.get("k", 3)
+                    break
 
-                st_data["k"] = k_val
-
-                # Blend-Mode, Cmap, Overlay, Alpha
-                st_data["blend_mode"] = preset.get("blend_mode", "mean")
-                st_data["cmap"] = preset.get("cmap", "viridis")
-                st_data["overlay"] = preset.get("overlay", True)
-                st_data["alpha"] = float(preset.get("alpha", 0.5))
-
-                # Name & Model-Layer
-                st_data["fav_name"] = f.get("name", "")
-                new_layer_id = preset.get("model_layer_id", st_data.get("model_layer_id", "conv1"))
-                st_data["model_layer_id"] = new_layer_id
-
-                # -----------------------------
-                # Streamlit-Widget-State setzen
-                # -----------------------------
-
-                # Modell-Layer-Selectbox
-                st.session_state[f"{layer_key}_model_layer"] = new_layer_id
-
-                # Mode-Radio ("Ausgewählte Channels" vs. "Top-K")
-                st.session_state[f"{layer_key}_mode_snapshot"] = st_data["mode"]
-
-                # K-Slider für Top-K (nur relevant, wenn Mode == "Top-K")
-                if st_data["mode"] == "Top-K":
-                    st.session_state[f"{layer_key}_k_snapshot"] = int(st_data["k"])
-
-                # Blend-Mode-Selectbox
-                st.session_state[f"{layer_key}_blend_snapshot"] = st_data["blend_mode"]
-
-                # Colormap-Selectbox
-                st.session_state[f"{layer_key}_cmap_snapshot"] = st_data["cmap"]
-
-                # Overlay-Checkbox
-                st.session_state[f"{layer_key}_overlay_snapshot"] = bool(st_data["overlay"])
-
-                # Alpha-Slider
-                st.session_state[f"{layer_key}_alpha_snapshot"] = float(st_data["alpha"])
-
-                st.success(f"Favorit '{selected_fav_name}' geladen.")
-                break
+        # Flag immer zurücksetzen, damit die Anwendung wirklich nur einmalig erfolgt
+        favorite_load_flags[layer_key] = False
 
     st.markdown("---")
 
@@ -164,9 +176,9 @@ def render() -> None:
                 "Dieses Bild wird für alle folgenden Visualisierungen verwendet."
             ),
         ):
-            snap = take_snapshot(cam_id)
+            snap, error_msg = take_snapshot(cam_id)
             if snap is None:
-                st.error("Kamera-Snapshot fehlgeschlagen.")
+                st.error(f"Kamera-Snapshot fehlgeschlagen: {error_msg}")
             else:
                 st.session_state.feature_snapshot = snap
 
@@ -452,11 +464,19 @@ def render() -> None:
     st.markdown("---")
     st.subheader("Favorit speichern/aktualisieren")
 
+    # Hinweis zum aktuellen Bearbeitungs-Kontext (falls vorhanden)
+    editing_name = st_data.get("editing_favorite_name")
+    if editing_name:
+        st.info(f"Bearbeite Favorit: '{editing_name}'. Änderungen werden beim Speichern in diesen Favoriten übernommen.")
+
     fav_name = st.text_input(
         "Name des Favoriten",
         value=st_data.get("fav_name", ""),
         key=f"{layer_key}_fav_name_snapshot",
-        help="Beschreibe diese Einstellung mit einem Namen (z. B. 'Frühe Kanten – starke Kantenbetonung').",
+        help=(
+            "Beschreibe diese Einstellung mit einem Namen (z. B. 'Frühe Kanten – starke Kantenbetonung'). "
+            "Wenn du einen bestehenden Favoriten bearbeitest, kannst du denselben Namen erneut verwenden, um ihn zu aktualisieren."
+        ),
     )
     st_data["fav_name"] = fav_name
 
@@ -476,7 +496,7 @@ def render() -> None:
         if st.button(
             "Als Favorit speichern/aktualisieren",
             key=f"{layer_key}_save_fav_snapshot",
-            help="Speichert diese Einstellung als Favorit im Config-File für diesen UI-Layer.",
+            help="Speichert die aktuelle Einstellung als Favorit im Config-File für diesen UI-Layer.",
         ):
             if not fav_name.strip():
                 st.error("Bitte einen Namen für den Favoriten angeben.")
@@ -489,7 +509,11 @@ def render() -> None:
                 }
                 upsert_favorite(raw, ui_layer.id, fav)
                 save_raw_config_dict(raw)
-                st.success(f"Favorit '{fav_name}' gespeichert/aktualisiert.")
+
+                # Bearbeitungs-Kontext aktualisieren: der soeben gespeicherte Favorit ist nun der aktive
+                st_data["editing_favorite_name"] = fav_name.strip()
+
+                st.success(f"Favorit '{fav_name}' wurde gespeichert/aktualisiert.")
 
     with c2:
-        st.caption("Zum Laden eines Favoriten nutze das Dropdown ganz oben links.")
+        st.caption("Zum Laden eines Favoriten wähle oben links einen Namen aus und klicke dann auf 'Favorit laden'.")

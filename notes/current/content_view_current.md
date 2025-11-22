@@ -1,0 +1,236 @@
+# Content-View (Content-Editor) – aktueller Stand
+
+## 1. Rolle im Gesamtsystem
+
+- Die Content-View ist ein Streamlit-View im Admin-Panel (`ui_admin_streamlit`) und dient als **Content-Editor** für textuelle Inhalte des Exponats.
+- Einstieg erfolgt über `ui_admin_streamlit/app.py`:
+  - `from ui_admin_streamlit.content_view import render as render_content`
+  - Im Navigation-Dispatcher wird bei Auswahl der entsprechenden Seite `render_content()` aufgerufen (konkreter Menüname je nach App-Implementierung).
+- Die Content-View verbindet drei Schichten:
+  - **Konfiguration** (`config`-Package): `ExhibitConfig`, `ExhibitUIConfig`, `ModelLayerContent`, `LayerUIConfig`.
+  - **Core-Schicht** (`core.model_engine.ModelEngine`): wird genutzt, um eine konsistente Liste von Modell-Layer-IDs zu ermitteln.
+  - **Admin-UI (Streamlit)**: Oberflächen zur Pflege von Titel, Untertiteln und Beschreibungstexten für globale Inhalte, Modell-Layer-Seiten und klassische UI-Layer.
+
+Ziel:
+- Alle in der Ausstellung angezeigten Texte zentral in `config/exhibit_config.json` pflegen, insbesondere:
+  - globaler Ausstellungstitel,
+  - pro Modell-Layer: Seitentitel, Kamera-Subtitle, Beschreibungstext,
+  - optional pro UI-Layer: Button-Label, Titelzeile, Kamera-Subtitle, Kurzbeschreibung.
+
+---
+
+## 2. Dateien und Verantwortlichkeiten (Content-View)
+
+Verzeichnis: `ui_admin_streamlit/`
+
+- `ui_admin_streamlit/content_view.py`
+  - Enthält die gesamte Logik und das Streamlit-UI für den Content-Editor.
+  - Wird direkt von `app.py` importiert.
+
+### 2.1 `render()` – Haupteinstieg der Content-View
+
+Signatur: `render() -> None`
+
+Verantwortlichkeiten:
+
+- Lädt die aktuelle Konfiguration über `load_config()`.
+- Stellt eine Unternavigation bereit, mit der zwischen verschiedenen Content-Bereichen gewechselt werden kann:
+  - **Global** (Seite `PAGE_ID_GLOBAL`): globaler Ausstellungstitel (`cfg.ui.title`).
+  - **Modell-Layer-Seiten**: eine Seite pro Modell-Layer-ID aus der `ModelEngine`.
+  - **Klassische UI-Layer-Seiten**: optionale Bearbeitung der klassischen `LayerUIConfig`-Texte.
+- Stellt Eingabefelder zur Bearbeitung von Textinhalten bereit und schreibt Änderungen in die im `config`-Modul definierte Config-Struktur zurück.
+- Persistiert Änderungen beim Klick auf „Konfiguration speichern“ dauerhaft in `config/exhibit_config.json` über `save_config(cfg)`.
+
+Ablauf (High-Level):
+
+1. `cfg = load_config()` – Laden der typisierten `ExhibitConfig`.
+2. Sicherstellen, dass mindestens ein UI-Layer existiert:
+   - Falls `cfg.ui.layers` leer ist, wird ein Default-Layer `LayerUIConfig(...)` mit ID `"layer1_conv1"` angelegt.
+3. Ermitteln der Modell-Layer-IDs über `_get_model_layer_ids(cfg.model)`:
+   - Diese Funktion nutzt intern eine temporäre `ModelEngine`-Instanz (siehe Abschnitt 2.2).
+4. Aufbau einer Navigationsliste (`nav_options`) mit Einträgen:
+   - `("Global", PAGE_ID_GLOBAL)`.
+   - Für jeden Modell-Layer `ml_id`: `("Modell-Layer: {ml_id}", f"model::{ml_id}")`.
+   - Für jeden vorhandenen UI-Layer `layer`: `(layer.button_label or layer.id, layer.id)`.
+5. Darstellung einer `st.radio`-Komponente „Seite wählen“, die einen der Einträge auswählt.
+6. Rendering der gewählten Seite:
+   - **Global-Seite**: Eingabefeld für `cfg.ui.title`.
+   - **Modell-Layer-Seite**: Felder für `ModelLayerContent` (`title`, `subtitle`, `description`).
+   - **UI-Layer-Seite**: Felder für `LayerUIConfig` (`button_label`, `title_bar_label`, `subtitle`, `description`).
+7. Speichern:
+   - Button „Konfiguration speichern“ ruft `save_config(cfg)` auf.
+   - Zeigt nach Erfolg `st.success("Gespeichert.")`.
+
+---
+
+## 3. Hilfsfunktionen in `content_view.py`
+
+### 3.1 `_get_layer_by_id(cfg, layer_id: str) -> LayerUIConfig | None`
+
+- Sucht in `cfg.ui.layers` nach einem `LayerUIConfig` mit passender `id`.
+- Rückgabewerte:
+  - Gefundener `LayerUIConfig` oder
+  - `None`, falls kein Layer mit dieser ID existiert.
+- Nutzung:
+  - Dient der Zuordnung eines UI-Layer-Seiten-Eintrags aus der Navigation zu seinem Config-Objekt.
+  - Wird in der UI-Layer-Seite des Editors verwendet, um Felder wie `button_label`, `title_bar_label`, `subtitle` und `description` zu bearbeiten.
+
+### 3.2 `_get_model_layer_ids(cfg_model: ModelConfig) -> list[str]`
+
+- Bestimmt die Liste der Modell-Layer-IDs, die als Content-Seiten angeboten werden sollen.
+- Vorgehen:
+  1. Erzeugt eine temporäre `ModelEngine`-Instanz mit dem übergebenen `ModelConfig`.
+  2. Ruft `engine.get_active_layers()` auf und gibt diese Liste zurück.
+- Motivation:
+  - Die Content-View bleibt damit automatisch konsistent mit der Feature-View und der späteren Kino-View,
+    da alle drei auf dem gleichen Mechanismus (`ModelEngine.get_active_layers()`) zur Bestimmung der Modell-Layer basieren.
+- Besonderheiten:
+  - Die `ModelEngine` wird hier **nur kurzzeitig** zur Ermittlung der Layerliste instanziiert;
+    es gibt keinen dauerhaft gehaltenen Engine- oder Aktivierungszustand im Content-Editor.
+
+---
+
+## 4. Content-Seiten und Datenmodell
+
+### 4.1 Globale Inhalte
+
+- Seite mit ID `PAGE_ID_GLOBAL` (Konstante `PAGE_ID_GLOBAL = "global"`).
+- UI:
+  - `st.subheader("Globale Inhalte")`.
+  - `st.text_input("Ausstellungstitel", value=cfg.ui.title)`.
+- Schreibweise in der Config:
+  - `cfg.ui.title` wird direkt aktualisiert.
+- Zweck:
+  - Globaler Ausstellungstitel, der z.B. in der Kino-View und anderen UIs als Haupttitel verwendet wird.
+
+### 4.2 Modell-Layer-Content (`ui.model_layers` / `ModelLayerContent`)
+
+- Seiten-IDs im Format `model::{model_layer_id}` (z.B. `model::conv1`, `model::layer1`, `model::layer2`, …).
+- Content-Struktur basiert auf der in `config.models` definierten Dataclass `ModelLayerContent`.
+- Pro Modell-Layer-Seite:
+  - `content: ModelLayerContent = get_model_layer_content(cfg, model_layer_id)`.
+    - `get_model_layer_content` stammt aus `config.service` und stellt sicher, dass für jede `model_layer_id`
+      ein vollständiges `ModelLayerContent`-Objekt existiert (ggf. mit Defaults).
+- UI-Felder:
+  - `Seitentitel` (`content.title`):
+    - Überschrift der Modell-Layer-Seite (z.B. in der Kino-View oder anderen Frontends).
+  - `Subtitle (Kamera-Ansicht)` (`content.subtitle`):
+    - Kurze Unterzeile, die z.B. in einer Kamera-Ansicht oder neben Visualisierungen verwendet werden kann.
+  - `Beschreibung (Erklärungstext)` (`content.description`):
+    - Ausführlicher Erläuterungstext für Besucher:innen (Laien-taugliche Erklärung des Layers).
+- Schreiben in die Config:
+  - Der Editor erzeugt für den jeweiligen `model_layer_id`-Key einen neuen `ModelLayerContent`:
+    - `cfg.ui.model_layers[model_layer_id] = ModelLayerContent(title=new_title, subtitle=new_subtitle or None, description=new_description)`.
+  - Damit werden Änderungen direkt in die zentrale `ExhibitConfig`-Struktur geschrieben
+    und beim Speichern mit `save_config(cfg)` persistiert.
+- Beziehung zu anderen Komponenten:
+  - **Feature-View** speichert in Favoriten, welche `model_layer_id` für eine Visualisierung verwendet wird.
+  - **Kino-View** (geplant/teilweise): liest pro `model_layer_id` die passenden `ModelLayerContent`-Texte und die Favoriten-Visualisierungen.
+  - Die Content-View ist der primäre Ort, um diese Texte kuratiert einzupflegen.
+
+### 4.3 Klassische UI-Layer-Seiten (`LayerUIConfig`)
+
+- Zusätzlich zu modell-layer-basiertem Content kann der Editor weiterhin klassische UI-Layer-Texte pflegen.
+- Für jeden `LayerUIConfig` in `cfg.ui.layers` wird ein Navigationspunkt erzeugt:
+  - Label: `layer.button_label` oder (Fallback) `layer.id`.
+  - Seiten-ID: `layer.id`.
+- In der Seitenlogik:
+  - `layer = _get_layer_by_id(cfg, active_page_id)`.
+  - Falls `layer` nicht gefunden wird:
+    - Anzeige eines Fehlers: `st.error(f"Unbekannter Layer: {active_page_id}")`.
+- UI-Felder pro Layer:
+  - `Button-Label` (`layer.button_label`):
+    - Text für den Button in der Kino-View-Buttonleiste.
+  - `Titelzeilen-Label` (`layer.title_bar_label`):
+    - Text in der Titelzeile der Kino-View, wenn der Layer aktiv ist.
+  - `Subtitle (Kamera-Ansicht)` (`layer.subtitle`):
+    - Kurzer Untertitel, der in einer Kameraansicht verwendet werden kann (`layer.subtitle or ""`).
+  - `Beschreibung (rechte Spalte)` (`layer.description`):
+    - Text für die rechte Spalte in der Kino-View (Erläuterungstext für den jeweiligen UI-Layer).
+- Zweck:
+  - Abwärtskompatibilität und parallele Pflege der ursprünglichen UI-Layer-Contentstruktur.
+  - Hilft, ältere oder ergänzende UI-Layer-Beschreibungen weiterhin verfügbar zu halten.
+
+---
+
+## 5. Interaktionen mit `config` und `core`
+
+### 5.1 Nutzung von `config.service` und `config.models`
+
+- Im Content-Editor werden folgende Funktionen und Typen verwendet:
+  - `load_config()`:
+    - Lädt `ExhibitConfig` aus `config/exhibit_config.json`.
+  - `save_config(cfg)`:
+    - Serialisiert `ExhibitConfig` und schreibt sie zurück in die JSON-Datei (inkl. Backup/Locking gemäß `config.service`).
+  - `get_model_layer_content(cfg, model_layer_id)`:
+    - Liest oder initialisiert den `ModelLayerContent`-Eintrag für einen gegebenen Modell-Layer.
+  - `LayerUIConfig`, `ModelConfig`, `ModelLayerContent`:
+    - Dataclasses aus `config.models`, die die UI- und Contentstruktur typisieren.
+
+- Datenfluss mit der Config-Schicht:
+  1. Beim Betreten der Content-View wird `cfg = load_config()` aufgerufen.
+  2. Benutzer:in bearbeitet Textfelder:
+     - Direkt auf Feldern von `cfg.ui` (`title`, `model_layers[...]`, `layers[...]`).
+  3. Beim Speichern wird `save_config(cfg)` aufgerufen, das intern die JSON-Datei aktualisiert.
+
+### 5.2 Nutzung von `core.model_engine.ModelEngine`
+
+- Der Content-Editor nutzt `ModelEngine` ausschließlich, um eine konsistente Liste von Modell-Layer-IDs zu erhalten:
+  - `_get_model_layer_ids(cfg.model)` → `ModelEngine(cfg_model)` → `get_active_layers()`.
+- Vorteile dieser Kopplung:
+  - Alle Schichten (Feature-View, Content-View, Kino-View) arbeiten mit derselben Modell-Layer-Liste.
+  - Änderungen an der Modellkonfiguration (`ModelConfig` / `ModelLayerMapping` / aktive Layer) müssen nicht in mehreren UIs separat gepflegt werden.
+- Keine Inferenz im Content-Editor:
+  - Es werden keine Bilder geladen, keine Aktivierungen berechnet und keine Visualisierungen erzeugt.
+  - Damit bleibt die Content-View performant und unabhängig vom aktuellen Kamerastatus.
+
+---
+
+## 6. UX-Überblick und typische Workflows
+
+### 6.1 Texte für Modell-Layer pflegen
+
+1. Admin wählt im Admin-Panel die Content-View / den Content-Editor.
+2. In der linken Navigation wählt er unter „Modell-Layer: …“ einen konkreten Modell-Layer (z.B. `conv1` oder `layer2`).
+3. In der rechten Seite bearbeitet er:
+   - Seitentitel,
+   - Subtitle für die Kamera-Ansicht,
+   - Beschreibungstext für Besucher:innen.
+4. Klick auf „Konfiguration speichern“:
+   - Änderungen werden in `cfg.ui.model_layers[model_layer_id]` übernommen und in `exhibit_config.json` persistiert.
+
+### 6.2 Globale und UI-Layer-Texte bearbeiten
+
+- Global:
+  - Auswahl „Global“ in der Navigation.
+  - Änderung des Ausstellungstitels (z.B. für das gesamte Exponat).
+- UI-Layer:
+  - Auswahl eines klassischen UI-Layers (Button-Label oder ID).
+  - Anpassen von:
+    - Button-Text,
+    - Titelzeilen-Label,
+    - Subtitle,
+    - Beschreibungstext.
+- Speichern erneut über „Konfiguration speichern“.
+
+---
+
+## 7. Beziehungen zu anderen Views
+
+- **Feature-View**:
+  - Speichert `model_layer_id` in Favoriten-Presets (`metadata.favorites` in der JSON-Config).
+  - Greift auf `ModelEngine` und `VizEngine` zu, um Aktivierungen zu visualisieren.
+  - Arbeitet auf derselben Modell-Layer-Liste wie der Content-Editor.
+- **Kino-View**:
+  - Nutzt `cfg.ui.layers` und perspektivisch `cfg.ui.model_layers` + Favoriten,
+    um pro Modell-Layer-Seite:
+    - Texte (Titel, Subtitle, Beschreibung),
+    - und ausgewählte Favoriten-Visualisierungen anzuzeigen.
+- **Config-Schicht**:
+  - Die Content-View ist der primäre Editor für `ui.title`, `ui.layers[*].*` und `ui.model_layers[*].*`.
+  - Dadurch bleiben `config_view_current.md`, `feature_view_current.md` und `kino_view_current.md` konsistent,
+    da sie sich alle auf dieselbe zentrale Config-Struktur beziehen.
+
+---
+
+*Zuletzt geprüft: Stand 2025-11-22 (basierend auf `ui_admin_streamlit/content_view.py` und aktueller Config-/Core-Implementierung).*

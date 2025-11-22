@@ -10,7 +10,7 @@ import torch.nn as nn
 import torchvision.transforms as T
 from torchvision import models
 
-from config.models import ModelConfig
+from config.models import ModelConfig, ModelLayerMapping
 
 
 class ModelEngine:
@@ -19,6 +19,7 @@ class ModelEngine:
     - Laden von ResNet18 (oder später anderen Modellen)
     - Registrieren von Hooks für ausgewählte Layer
     - Einmalige Inferenz mit Rückgabe der gewünschten Aktivierungen
+    - Unterstützung für UI-Layer → Modell-Layer Mapping
     """
 
     def __init__(
@@ -28,6 +29,7 @@ class ModelEngine:
         device: str = "cpu",
     ):
         self.device = device
+        self.model_cfg = model_cfg
 
         # -------------------------
         # 1. Modell laden
@@ -47,6 +49,13 @@ class ModelEngine:
         for name, module in self.model.named_modules():
             self.layer_map[name] = module
 
+        # -------------------------
+        # 3. UI-Layer → Model-Layer Mapping aufbauen
+        # -------------------------
+        self._ui_to_model_map: Dict[str, str] = {}
+        for mapping in model_cfg.layer_mappings:
+            self._ui_to_model_map[mapping.ui_layer_id] = mapping.model_layer_id
+
         # Standardlayer falls nichts spezifiziert
         if active_layer_ids is None:
             active_layer_ids = ["conv1", "layer1", "layer2", "layer3", "layer4"]
@@ -54,18 +63,18 @@ class ModelEngine:
         self.active_layer_ids = active_layer_ids
 
         # -------------------------
-        # 3. Speicher für Aktivierungen
+        # 4. Speicher für Aktivierungen
         # -------------------------
         self._activations: Dict[str, np.ndarray] = {}
 
         # -------------------------
-        # 4. Hooks setzen
+        # 5. Hooks setzen
         # -------------------------
         self._hooks = []
         self._register_hooks()
 
         # -------------------------
-        # 5. Preprocessing
+        # 6. Preprocessing
         # -------------------------
         self.preprocess = T.Compose(
             [
@@ -109,6 +118,13 @@ class ModelEngine:
     def get_active_layers(self) -> List[str]:
         """Gibt die Layer zurück, für die wir Hooks gesetzt haben."""
         return self.active_layer_ids
+
+    def get_model_layer_id(self, ui_layer_id: str) -> Optional[str]:
+        """
+        Löst eine UI-Layer-ID zu einer Modell-Layer-ID auf.
+        Falls kein Mapping existiert, wird die ID unverändert zurückgegeben (Fallback).
+        """
+        return self._ui_to_model_map.get(ui_layer_id, ui_layer_id)
 
     def run_inference(self, np_image: np.ndarray) -> Dict[str, np.ndarray]:
         """
