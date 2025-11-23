@@ -50,7 +50,7 @@
 - Zentrale Klassen/Attribute:
   - `ExhibitRoot(BoxLayout)`
     - Wurzel-Widget der App.
-    - Wichtige Attribute (neuer Stand):
+    - Wichtige Attribute (aktueller Stand):
       - `self.cfg`: vollständige `ExhibitConfig`.
       - `self.model_layer_ids`: Liste der aktiven Modell-Layer-IDs.
       - `self.session_removed_favorites`: Session-Only-State für ausgeblendete Favoriten.
@@ -65,49 +65,51 @@
 
     - Wichtige Methoden (Ist-Stand):
       - `__init__`: Lädt Config, initialisiert `ModelEngine` und `VizEngine`, baut UI und startet auf der Globalseite.
-      - `_build_middle_area`: Baut die zweigeteilte Mittelspalte:
-        - Links: `vis_image` (Livebild) + `vis_status_label`.
-        - Rechts: Subtitle, Beschreibung, Favoritenliste.
-      - `_render_favorites(model_layer_id)`: Rendert pro Modell-Layer die Favoriten als Buttons.
+      - `_build_titlebar`: Baut die Titelzeile mit Text aus `cfg.ui.global_texts.global_page_title` (Fallback: `cfg.ui.title`).
+      - `_build_middle_area`: Baut die zweigeteilte Mittelspalte (Livebild + rechte Text-/Favoritenspalte).
+      - `_build_buttonbar`: Baut eine Buttonleiste mit einem Global-Button (Label aus `cfg.ui.global_texts.home_button_label`
+        oder Fallback "Global") sowie Buttons für alle Modell-Layer.
+      - `switch_to_page(page_id)`: Wechselt zwischen „global“ und Modell-Layer-Seiten, stoppt dabei ggf. den Live-Modus.
+      - `_render_global_page()`: Setzt Texte für die Globalseite (Status, Begrüßungstext) und leert den Favoritenbereich.
+      - `_render_model_layer_page(model_layer_id)`: Lädt Content für einen Modell-Layer (`get_model_layer_content`) und
+        ruft `_render_favorites(model_layer_id)` auf.
+      - `_render_favorites(model_layer_id)`: Rendert für einen Modell-Layer die ausgewählten Kino-Favoriten als Buttons,
+        basierend auf `get_selected_kivy_favorites` und ggf. Session-Filter (`session_removed_favorites`).
       - `on_favorite_select(model_layer_id, favorite_name, favorite)`: Startet den Live-Modus für den gewählten Favoriten.
-      - `on_favorite_remove_ui(...)`: Entfernt Favoriten aus der Sicht (Session-only) und rendert neu.
-      - `switch_to_page(page_id)`: Wechselt zwischen „global“ und Modell-Layer-Seiten und stoppt dabei ggf. den Live-Modus.
+      - `on_favorite_remove_ui(...)`: Entfernt Favoriten aus der aktuellen Sicht (Session-only) und rendert neu.
       - `stop_live()`: Stoppt den laufenden Live-Modus und setzt den State zurück.
       - `update_live_frame(dt, viz_preset)`: Holt Kamera-Snapshot, führt Inferenz durch, visualisiert und aktualisiert `vis_image`.
       - `_update_kivy_texture_from_numpy(img)`: Hilfsfunktion, die ein RGB-Array in eine Kivy-Texture schreibt.
 
-## 3. Datenfluss „Favorit auswählen → Livebild“
+## 3. Datenfluss „Favorit auswählen → Livebild“ und Auswahlquelle
 
-1. Benutzer:in wählt im Kino-View einen Favoriten-Button für einen bestimmten Modell-Layer.
-2. `on_favorite_select(model_layer_id, favorite_name, favorite)` wird aufgerufen:
+1. Die Auswahl, **welche** Favoriten pro `model_layer_id` im Kino-View sichtbar sind, wird im Admin-Content-Editor
+   getroffen und in `cfg.ui.kivy_favorites[model_layer_id]` gespeichert.
+2. Beim Wechsel auf eine Modell-Layer-Seite ruft der Kino-View `_render_model_layer_page(model_layer_id)` auf:
+   - Lädt Text-Content über `get_model_layer_content(cfg, model_layer_id)`.
+   - Ermittelt die für diese Seite aktiven Favoriten über `get_selected_kivy_favorites(cfg, model_layer_id)`, das
+     `cfg.ui.kivy_favorites` interpretiert und auf die tatsächlich existierenden Favoriten (aus `metadata.favorites`)
+     abbildet.
+3. `_render_favorites(model_layer_id)` rendert für jeden aktiven Favoriten einen Button, optional mit einem „X“-Button,
+   um Favoriten sessionweise auszublenden.
+4. Benutzer:in wählt im Kino-View einen Favoriten-Button für einen bestimmten Modell-Layer.
+5. `on_favorite_select(model_layer_id, favorite_name, favorite)` wird aufgerufen:
    - Stoppt ggf. einen vorher laufenden Live-Modus (`stop_live`).
    - Ruft `camera_service.detect_cameras(max_tested=5)` auf und wählt die erste gefundene Kamera-ID.
    - Speichert `self.live_cam_id` und `self.live_active_layer_id`.
    - Baut aus `favorite["preset"]` ein `VizPreset`-Objekt (Konvertierung aus dem Favoriten-Preset).
    - Setzt `self.live_active_favorite` und aktualisiert `vis_status_label`.
    - Plant `update_live_frame` per `Clock.schedule_interval` im festen Intervall (`LIVE_UPDATE_INTERVAL`).
-3. `update_live_frame(dt, viz_preset)` wird im Intervall aufgerufen:
-   - Holt Snapshot: `img, err = camera_service.take_snapshot(self.live_cam_id)`.
-     - Bei Fehler (`img is None`):
-       - Loggt den Fehler.
-       - Setzt `vis_status_label` auf eine verständliche Meldung („Kamera-Fehler: …“).
-       - Stoppt den Live-Modus via `stop_live`.
-   - Führt Inferenz aus: `acts = self.model_engine.run_inference(img)`.
-     - Erwartet, dass `self.live_active_layer_id` als Key in `acts` vorhanden ist.
-     - Falls nicht vorhanden: Fehler-Log + Status-Label + Stop des Live-Modus.
-   - Visualisiert Aktivierung: `vis_img = self.viz_engine.visualize(activation, viz_preset, original=img if viz_preset.overlay else None)`.
-     - Bei Exception: Fehler-Log, Status-Label, Stop des Live-Modus.
-   - Übergibt `vis_img` an `_update_kivy_texture_from_numpy`, das die Kivy-Texture aktualisiert.
-4. `_update_kivy_texture_from_numpy(img)`:
-   - Erwartet ein `np.ndarray` der Form (H, W, 3), `dtype=uint8`.
-   - Erzeugt (oder erneuert) eine `Texture` mit passender Größe.
-   - Schreibt die Bytes mit `blit_buffer(..., colorfmt="rgb", bufferfmt="ubyte")`.
-   - Ruft `canvas.ask_update()`, sodass das Bild sichtbar wird.
+6. `update_live_frame(dt, viz_preset)` wird im Intervall aufgerufen:
+   - Holt Snapshot über den `CameraStream`.
+   - Führt Inferenz über `ModelEngine` aus.
+   - Visualisiert Aktivierungen mit `VizEngine` und aktualisiert das Kivy-Image.
 
-5. `stop_live()`:
-   - Bricht das geplante Clock-Event ab, falls vorhanden.
-   - Setzt `live_active_favorite` und `live_active_layer_id` zurück.
-   - Aktualisiert `vis_status_label` auf „Live-Modus gestoppt“.
+**Wichtig:**
+- Die Kino-View wählt **nicht selbst** aus, welche Favoriten aktiv sind. Diese Auswahl erfolgt ausschließlich
+  in der Content-View und wird über `ui.kivy_favorites` an den Kino-View übergeben.
+- Die Feature-View ist dafür zuständig, Favoriten (Name + Preset inkl. `preset.model_layer_id`) anzulegen,
+  zu bearbeiten und zu löschen.
 
 ## 4. Abhängigkeiten und Architektur-Vorgaben
 

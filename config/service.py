@@ -16,10 +16,13 @@ from .models import (
     LayerUIConfig,
     VizPreset,
     ModelLayerContent,
+    GlobalUITexts,
 )
 from .migrations import migrate_config
 
 logger = logging.getLogger(__name__)
+
+MAX_FAVORITES_PER_MODEL_LAYER = 3
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "config" / "exhibit_config.json"
@@ -80,7 +83,7 @@ class FileLock:
 def _default_config_dict() -> Dict[str, Any]:
     """Rohes Default-Config als Dict (JSON-kompatibel)."""
     return {
-        "version": "1.0",
+        "version": "1.1",
         "exhibit_id": "cnn_museum_01",
         "model": {
             "name": "resnet18",
@@ -90,9 +93,14 @@ def _default_config_dict() -> Dict[str, Any]:
         "ui": {
             "title": "Wie ein neuronales Netz sieht",
             "language": "de",
+            "global_texts": {
+                "global_page_title": "Wie ein neuronales Netz sieht",
+                "home_button_label": "Home",
+            },
+            "kivy_favorites": {},
             "layers": [
                 {
-                    "id": "layer1_conv1",
+                    "id": "layer_1_default",
                     "order": 1,
                     "button_label": "Frühe Kanten",
                     "title_bar_label": "Layer 1 – Kanten",
@@ -108,7 +116,7 @@ def _default_config_dict() -> Dict[str, Any]:
         "viz_presets": [
             {
                 "id": "preset_layer1",
-                "layer_id": "layer1_conv1",
+                "layer_id": "layer_1_default",
                 "channels": [0],
                 "blend_mode": "mean",
                 "overlay": False,
@@ -299,11 +307,24 @@ def _from_dict(d: Dict[str, Any]) -> ExhibitConfig:
             description=ml_cfg.get("description", ""),
         )
 
+    # Globale UI-Texte (optional)
+    global_texts_raw = ui_raw.get("global_texts")
+    global_texts: GlobalUITexts | None = None
+    if isinstance(global_texts_raw, dict):
+        global_texts = GlobalUITexts(
+            global_page_title=global_texts_raw.get("global_page_title"),
+            home_button_label=global_texts_raw.get("home_button_label"),
+        )
+
+    kivy_favorites = ui_raw.get("kivy_favorites", {}) or {}
+
     ui_cfg = ExhibitUIConfig(
         title=ui_raw["title"],
         language=ui_raw.get("language", "de"),
         layers=layers,
         model_layers=model_layers,
+        global_texts=global_texts,
+        kivy_favorites=kivy_favorites,
     )
 
     presets_raw: List[Dict[str, Any]] = d.get("viz_presets", [])
@@ -359,6 +380,15 @@ def _to_dict(cfg: ExhibitConfig) -> Dict[str, Any]:
                 }
                 for ml_id, ml in cfg.ui.model_layers.items()
             },
+            "global_texts": (
+                {
+                    "global_page_title": cfg.ui.global_texts.global_page_title,
+                    "home_button_label": cfg.ui.global_texts.home_button_label,
+                }
+                if cfg.ui.global_texts is not None
+                else None
+            ),
+            "kivy_favorites": cfg.ui.kivy_favorites,
         },
         "viz_presets": [
             {
@@ -389,7 +419,7 @@ def get_model_layer_content(cfg: ExhibitConfig, model_layer_id: str) -> ModelLay
     return ModelLayerContent(title=model_layer_id, description="Noch nicht konfiguriert")
 
 
-def get_favorites_for_model_layer(cfg: ExhibitConfig, model_layer_id: str, max_count: int = 3) -> List[Dict[str, Any]]:
+def get_favorites_for_model_layer(cfg: ExhibitConfig, model_layer_id: str, max_count: int = MAX_FAVORITES_PER_MODEL_LAYER) -> List[Dict[str, Any]]:
     """Liest Favoriten aus ui.layers[].metadata.favorites, gefiltert nach preset.model_layer_id.
 
     Gibt eine Liste von Favorite-Objekten (rohe Dicts) mit höchstens max_count Einträgen zurück.
@@ -402,5 +432,55 @@ def get_favorites_for_model_layer(cfg: ExhibitConfig, model_layer_id: str, max_c
             preset = fav.get("preset", {})
             if preset.get("model_layer_id") == model_layer_id:
                 favorites.append(fav)
-    # Maximalanzahl beschneiden
     return favorites[:max_count]
+
+
+def list_all_favorites_for_model_layer(cfg: ExhibitConfig, model_layer_id: str) -> List[Dict[str, Any]]:
+    """Liefert alle Favoriten für ein model_layer_id ohne Begrenzung der Anzahl."""
+    return get_favorites_for_model_layer(cfg, model_layer_id, max_count=10_000)
+
+
+def get_selected_kivy_favorites(cfg: ExhibitConfig, model_layer_id: str) -> List[Dict[str, Any]]:
+    """Liefert die für den Kivy-View ausgewählten Favoriten für ein model_layer_id.
+
+    Nutzt ui.kivy_favorites[model_layer_id] als Referenzliste (Namen) und
+    filtert dagegen alle vorhandenen Favoriten dieses Modell-Layers.
+    """
+    selected_ids = cfg.ui.kivy_favorites.get(model_layer_id, [])
+    if not selected_ids:
+        return []
+
+    all_favs = list_all_favorites_for_model_layer(cfg, model_layer_id)
+    by_name = {f.get("name"): f for f in all_favs if "name" in f}
+
+    ordered: List[Dict[str, Any]] = []
+    for fav_name in selected_ids:
+        fav = by_name.get(fav_name)
+        if fav is not None:
+            ordered.append(fav)
+
+    return ordered[:MAX_FAVORITES_PER_MODEL_LAYER]
+
+
+def set_selected_kivy_favorites(cfg: ExhibitConfig, model_layer_id: str, favorite_names: List[str]) -> None:
+    """Setzt die ausgewählten Favoriten für einen Modell-Layer.
+
+    - Entfernt Dubletten.
+    - Beschneidet auf MAX_FAVORITES_PER_MODEL_LAYER.
+    - Ignoriert Namen ohne existierenden Favoriten.
+    """
+    # Dubletten entfernen, Reihenfolge beibehalten
+    seen = set()
+    deduped: List[str] = []
+    for name in favorite_names:
+        if name not in seen:
+            seen.add(name)
+            deduped.append(name)
+
+    # Existierende Favoriten bestimmen
+    all_favs = list_all_favorites_for_model_layer(cfg, model_layer_id)
+    existing_names = {f.get("name") for f in all_favs if "name" in f}
+
+    filtered = [n for n in deduped if n in existing_names]
+    cfg.ui.kivy_favorites[model_layer_id] = filtered[:MAX_FAVORITES_PER_MODEL_LAYER]
+

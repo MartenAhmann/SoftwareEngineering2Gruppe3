@@ -115,6 +115,8 @@ Verzeichnis: `config/`
   - `language: str = "de"` – Sprachkennzeichen, aktuell standardmäßig „de“.
   - `layers: List[LayerUIConfig]` – Liste aller UI-Layer, aus denen z.B. die Kino-View ihre Buttons und Texte bezieht.
   - `model_layers: Dict[str, ModelLayerContent]` – Mapping von Modell-Layer-IDs auf deren Content-Konfiguration.
+  - `global_texts: Optional[GlobalUITexts]` – optionale globale UI-Texte (Titel der Globalseite, Label des Global/Home-Buttons).
+  - `kivy_favorites: Dict[str, List[str]]` – Auswahl aktiver Favoriten pro `model_layer_id` für den Kivy-Kino-View (Liste von Favoritennamen).
 
 #### 2.2.7 `ExhibitConfig`
 
@@ -163,8 +165,8 @@ Verzeichnis: `config/`
 #### 2.3.3 `_default_config_dict()`
 
 - Gibt ein rohes, JSON-kompatibles Default-Config-Dict zurück.
-- Struktur des Default-Dicts:
-  - `version`: `"1.0"`.
+- Struktur des Default-Dicts (Stand Version 1.1):
+  - `version`: `"1.1"`.
   - `exhibit_id`: `"cnn_museum_01"`.
   - `model`:
     - `name`: `"resnet18"`.
@@ -173,17 +175,23 @@ Verzeichnis: `config/`
   - `ui`:
     - `title`: `"Wie ein neuronales Netz sieht"`.
     - `language`: `"de"`.
+    - `global_texts`:
+      - `global_page_title`: identisch zum Ausstellungstitel.
+      - `home_button_label`: `"Home"`.
+    - `kivy_favorites`: leeres Mapping `{}` (keine Vorauswahl von Kino-Favoriten).
     - `layers`: Liste mit genau einem Default-Layer:
-      - `id`: `"layer1_conv1"`.
+      - `id`: `"layer_1_default"` (generische ID, keine magische Standard-ID).
       - `order`: `1`.
       - `button_label`: `"Frühe Kanten"`.
       - `title_bar_label`: `"Layer 1 – Kanten"`.
-      - `description`: erklärender Text zu frühen Kanten und Helligkeitsübergängen.
+      - `description`: erläuternder Text zu frühen Kanten und Helligkeitsübergängen.
       - `viz_preset_id`: `"preset_layer1"`.
+      - `subtitle`: kurzer Untertitel (z.B. „Kamera-Blick auf frühe Kanten“).
+      - `metadata.favorites`: leere Liste (Favoriten werden ausschließlich über die Feature-View gepflegt).
   - `viz_presets`:
     - Liste mit einem Default-Preset:
       - `id`: `"preset_layer1"`.
-      - `layer_id`: `"layer1_conv1"`.
+      - `layer_id`: `"layer_1_default"`.
       - `channels`: `[0]`.
       - `blend_mode`: `"mean"`.
       - `overlay`: `False`.
@@ -408,17 +416,32 @@ Verzeichnis: `config/`
     - `description = "Noch nicht konfiguriert"`.
   - Dadurch bleibt das System robust, auch wenn Content für einzelne Layer noch nicht gepflegt wurde.
 
-### 3.3.2 Modell-Layer-basierte Favoriten-Sicht (`get_favorites_for_model_layer`)
+### 3.3.2 Modell-Layer-basierte Favoriten-Sicht (`get_favorites_for_model_layer`, `kivy_favorites`)
 
-- Zusätzlich zu `metadata.favorites` auf UI-Layer-Ebene stellt `config.service` eine Hilfsfunktion bereit:
-  - `get_favorites_for_model_layer(cfg: ExhibitConfig, model_layer_id: str, max_count: int = 3) -> List[Dict[str, Any]]`.
+- Zusätzlich zu `metadata.favorites` auf UI-Layer-Ebene stellt `config.service` Hilfsfunktionen bereit:
+  - `get_favorites_for_model_layer(cfg: ExhibitConfig, model_layer_id: str, max_count: int = MAX_FAVORITES_PER_MODEL_LAYER) -> List[Dict[str, Any]]`.
+  - `list_all_favorites_for_model_layer(cfg: ExhibitConfig, model_layer_id: str) -> List[Dict[str, Any]]`.
+  - `get_selected_kivy_favorites(cfg: ExhibitConfig, model_layer_id: str) -> List[Dict[str, Any]]`.
+  - `set_selected_kivy_favorites(cfg: ExhibitConfig, model_layer_id: str, favorite_names: List[str]) -> None`.
+
 - Verhalten:
-  - Durchsucht alle `cfg.ui.layers` und deren `metadata.favorites`.
-  - Filtert Favoriten so, dass `fav["preset"].get("model_layer_id") == model_layer_id` gilt.
-  - Beschränkt die Ergebnisliste auf `max_count` Elemente (Standard: 3).
+  - `get_favorites_for_model_layer` durchsucht alle `cfg.ui.layers` und deren `metadata.favorites` und filtert Favoriten so,
+    dass `fav["preset"].get("model_layer_id") == model_layer_id` gilt. Die Ergebnisliste wird auf höchstens
+    `MAX_FAVORITES_PER_MODEL_LAYER` Einträge beschnitten.
+  - `list_all_favorites_for_model_layer` liefert dieselbe Sicht **ohne** Begrenzung der Anzahl (wird vor allem von der Content-View benutzt).
+  - `get_selected_kivy_favorites` interpretiert `cfg.ui.kivy_favorites[model_layer_id]` als Referenzliste von Favoritennamen,
+    sucht die dazugehörigen Favoriten (aus `metadata.favorites`) und gibt sie in genau dieser Reihenfolge zurück,
+    wiederum auf `MAX_FAVORITES_PER_MODEL_LAYER` begrenzt.
+  - `set_selected_kivy_favorites` setzt die Auswahl für einen Modell-Layer, indem die übergebenen Namen dedupliziert,
+    auf existierende Favoriten geprüft und auf `MAX_FAVORITES_PER_MODEL_LAYER` beschnitten werden; das Ergebnis wird in
+    `cfg.ui.kivy_favorites[model_layer_id]` gespeichert.
+
 - Nutzung:
-  - **Kino-View**: Zeigt pro Modell-Layer-Seite bis zu drei Favoriten an, ohne die Rohstruktur im UI neu interpretieren zu müssen.
-  - **Feature-View**: Kann weiterhin direkt mit `metadata.favorites` arbeiten; die neue Hilfsfunktion ändert das bestehende Schema nicht, sondern ergänzt nur eine lesende Sicht.
+  - **Feature-View**: arbeitet weiterhin direkt mit `metadata.favorites` und kennt keine Obergrenze pro Layer.
+  - **Content-View**: bietet pro Modell-Layer-Seite eine Checkbox-Auswahl aller vorhandenen Favoriten und schreibt die
+    Auswahl in `ui.kivy_favorites` (maximal `MAX_FAVORITES_PER_MODEL_LAYER` Einträge pro `model_layer_id`).
+  - **Kino-View**: liest die für den jeweiligen Modell-Layer ausgewählten Favoriten ausschließlich über
+    `get_selected_kivy_favorites` und zeigt genau diese in der Besucheroberfläche an.
 
 ---
 

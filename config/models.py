@@ -62,12 +62,20 @@ class ModelLayerContent:
 
 
 @dataclass
+class GlobalUITexts:
+    global_page_title: Optional[str] = None
+    home_button_label: Optional[str] = None
+
+
+@dataclass
 class ExhibitUIConfig:
     title: str                               # globaler Ausstellungstitel
     language: str = "de"
     layers: List[LayerUIConfig] = field(default_factory=list)
     # Neues Mapping: Content pro Modell-Layer-ID
     model_layers: Dict[str, ModelLayerContent] = field(default_factory=dict)
+    global_texts: Optional[GlobalUITexts] = None
+    kivy_favorites: Dict[str, List[str]] = field(default_factory=dict)
 
 
 @dataclass

@@ -12,12 +12,15 @@ from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
-from kivy.core.window import Window
 from kivy.uix.image import Image
 from kivy.clock import Clock
 from kivy.graphics.texture import Texture
 
-from config.service import load_config, get_model_layer_content, get_favorites_for_model_layer
+from config.service import (
+    load_config,
+    get_model_layer_content,
+    get_selected_kivy_favorites,
+)
 from config.models import ModelConfig, ModelLayerContent, VizPreset
 from core.model_engine import ModelEngine
 from core.viz_engine import VizEngine
@@ -114,8 +117,15 @@ class ExhibitRoot(BoxLayout):
     # ----------------------------------------------------
 
     def _build_titlebar(self):
+        gt = self.cfg.ui.global_texts
+        title_text = (
+            gt.global_page_title
+            if gt is not None and gt.global_page_title
+            else self.cfg.ui.title
+        )
+
         titlebar = Label(
-            text=self.cfg.ui.title,
+            text=title_text,
             size_hint_y=0.10,
             halign="center",
             valign="middle"
@@ -174,8 +184,15 @@ class ExhibitRoot(BoxLayout):
         bottom = BoxLayout(orientation="horizontal", size_hint_y=0.15)
 
         # Global-Button
+        gt = self.cfg.ui.global_texts
+        global_label = (
+            gt.home_button_label
+            if gt is not None and gt.home_button_label
+            else "Global"
+        )
+
         global_btn = Button(
-            text="Global",
+            text=global_label,
             on_press=lambda instance: self.switch_to_page("global"),
         )
         bottom.add_widget(global_btn)
@@ -235,7 +252,7 @@ class ExhibitRoot(BoxLayout):
         if model_layer_id is None:
             return
 
-        favorites = get_favorites_for_model_layer(self.cfg, model_layer_id)
+        favorites = get_selected_kivy_favorites(self.cfg, model_layer_id)
 
         # Session-only entfernte Favoriten herausfiltern
         removed = self.session_removed_favorites.get(model_layer_id, set())

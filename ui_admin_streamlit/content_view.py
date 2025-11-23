@@ -3,8 +3,15 @@ from __future__ import annotations
 
 import streamlit as st
 
-from config.service import load_config, save_config, get_model_layer_content
-from config.models import LayerUIConfig, ModelConfig, ModelLayerContent
+from config.service import (
+    load_config,
+    save_config,
+    get_model_layer_content,
+    list_all_favorites_for_model_layer,
+    set_selected_kivy_favorites,
+    MAX_FAVORITES_PER_MODEL_LAYER,
+)
+from config.models import LayerUIConfig, ModelConfig, ModelLayerContent, GlobalUITexts
 from core.model_engine import ModelEngine
 
 
@@ -40,7 +47,7 @@ def render():
     if not cfg.ui.layers:
         cfg.ui.layers.append(
             LayerUIConfig(
-                id="layer1_conv1",
+                id="layer_1_default",
                 order=1,
                 button_label="Frühe Kanten",
                 title_bar_label="Layer 1 – Kanten",
@@ -82,6 +89,23 @@ def render():
     if active_page_id == PAGE_ID_GLOBAL:
         st.subheader("Globale Inhalte")
         cfg.ui.title = st.text_input("Ausstellungstitel", value=cfg.ui.title)
+
+        # Globale UI-Texte initialisieren, falls None
+        if cfg.ui.global_texts is None:
+            cfg.ui.global_texts = GlobalUITexts(
+                global_page_title=cfg.ui.title,
+                home_button_label="Home",
+            )
+
+        gt = cfg.ui.global_texts
+        gt.global_page_title = st.text_input(
+            "Titel der Globalseite",
+            value=gt.global_page_title or cfg.ui.title,
+        )
+        gt.home_button_label = st.text_input(
+            "Label für Global/Home-Button",
+            value=gt.home_button_label or "Home",
+        )
     elif active_page_id.startswith("model::"):
         # Modell-Layer-Content-Seite
         model_layer_id = active_page_id.split("::", 1)[1]
@@ -104,6 +128,34 @@ def render():
             subtitle=new_subtitle or None,
             description=new_description,
         )
+
+        st.markdown("---")
+        st.markdown("**Kino-Favoriten-Auswahl für diesen Modell-Layer**")
+
+        all_favs = list_all_favorites_for_model_layer(cfg, model_layer_id)
+        if not all_favs:
+            st.info(
+                "Für diesen Modell-Layer existieren noch keine Favoriten. "
+                "Lege Favoriten in der Feature-View an."
+            )
+        else:
+            aktuelle_auswahl = cfg.ui.kivy_favorites.get(model_layer_id, [])
+            neue_auswahl: list[str] = []
+
+            for fav in all_favs:
+                name = fav.get("name", "(ohne Namen)")
+                checked = name in aktuelle_auswahl
+                checked = st.checkbox(
+                    f"Favorit im Kino anzeigen: {name}",
+                    value=checked,
+                    key=f"fav_select_{model_layer_id}_{name}",
+                )
+                if checked:
+                    neue_auswahl.append(name)
+
+            # Temporäre Auswahl im Streamlit-State ablegen, damit der Speichern-Button darauf zugreifen kann
+            st.session_state["_kivy_fav_selection_model_layer_id"] = model_layer_id
+            st.session_state["_kivy_fav_selection_names"] = neue_auswahl
     else:
         # Klassische UI-Layer-Seiten (Bestand)
         layer = _get_layer_by_id(cfg, active_page_id)
@@ -121,5 +173,17 @@ def render():
             )
 
     if st.button("Konfiguration speichern"):
+        # Zusätzliche Logik: ggf. Kino-Favoriten-Auswahl speichern
+        ml_id = st.session_state.get("_kivy_fav_selection_model_layer_id")
+        names = st.session_state.get("_kivy_fav_selection_names")
+        if ml_id is not None and names is not None:
+            if len(names) > MAX_FAVORITES_PER_MODEL_LAYER:
+                st.error(
+                    f"Es dürfen maximal {MAX_FAVORITES_PER_MODEL_LAYER} Favoriten pro Modell-Layer im Kino aktiv sein. "
+                    "Bitte Auswahl reduzieren."
+                )
+                return
+            set_selected_kivy_favorites(cfg, ml_id, names)
+
         save_config(cfg)
         st.success("Gespeichert.")

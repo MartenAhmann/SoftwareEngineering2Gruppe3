@@ -45,17 +45,17 @@ Ablauf (High-Level):
 
 1. `cfg = load_config()` – Laden der typisierten `ExhibitConfig`.
 2. Sicherstellen, dass mindestens ein UI-Layer existiert:
-   - Falls `cfg.ui.layers` leer ist, wird ein Default-Layer `LayerUIConfig(...)` mit ID `"layer1_conv1"` angelegt.
+   - Falls `cfg.ui.layers` leer ist, wird ein Default-Layer `LayerUIConfig(...)` mit ID `"layer_1_default"` angelegt.
 3. Ermitteln der Modell-Layer-IDs über `_get_model_layer_ids(cfg.model)`:
    - Diese Funktion nutzt intern eine temporäre `ModelEngine`-Instanz (siehe Abschnitt 2.2).
 4. Aufbau einer Navigationsliste (`nav_options`) mit Einträgen:
-   - `("Global", PAGE_ID_GLOBAL)`.
-   - Für jeden Modell-Layer `ml_id`: `("Modell-Layer: {ml_id}", f"model::{ml_id}")`.
+   - `( "Global", PAGE_ID_GLOBAL )`.
+   - Für jeden Modell-Layer `ml_id`: `( "Modell-Layer: {ml_id}", f"model::{ml_id}" )`.
    - Für jeden vorhandenen UI-Layer `layer`: `(layer.button_label or layer.id, layer.id)`.
 5. Darstellung einer `st.radio`-Komponente „Seite wählen“, die einen der Einträge auswählt.
 6. Rendering der gewählten Seite:
-   - **Global-Seite**: Eingabefeld für `cfg.ui.title`.
-   - **Modell-Layer-Seite**: Felder für `ModelLayerContent` (`title`, `subtitle`, `description`).
+   - **Global-Seite**: Felder für Ausstellungstitel und globale UI-Texte (`ui.global_texts`).
+   - **Modell-Layer-Seite**: Felder für `ModelLayerContent` (`title`, `subtitle`, `description`) und eine Checkbox-Auswahl der Kino-Favoriten.
    - **UI-Layer-Seite**: Felder für `LayerUIConfig` (`button_label`, `title_bar_label`, `subtitle`, `description`).
 7. Speichern:
    - Button „Konfiguration speichern“ ruft `save_config(cfg)` auf.
@@ -98,12 +98,19 @@ Ablauf (High-Level):
 - UI:
   - `st.subheader("Globale Inhalte")`.
   - `st.text_input("Ausstellungstitel", value=cfg.ui.title)`.
+  - Initialisiert bei Bedarf `cfg.ui.global_texts` mit sinnvollen Defaults (Titel der Ausstellung und `"Home"` als Button-Label).
+  - Textfelder für die Felder von `GlobalUITexts`:
+    - `Titel der Globalseite` (`cfg.ui.global_texts.global_page_title`):
+      - Überschrift, die in der Kino-View in der Titelzeile verwendet wird.
+    - `Label für Global/Home-Button` (`cfg.ui.global_texts.home_button_label`):
+      - Text auf dem Global-/Home-Button in der Buttonleiste der Kino-View.
 - Schreibweise in der Config:
   - `cfg.ui.title` wird direkt aktualisiert.
+  - `cfg.ui.global_texts.*` werden direkt über das `GlobalUITexts`-Objekt verändert.
 - Zweck:
-  - Globaler Ausstellungstitel, der z.B. in der Kino-View und anderen UIs als Haupttitel verwendet wird.
+  - Globaler Ausstellungstitel und globale UI-Texte, die von der Kino-View verwendet werden (Titelzeile, Global-Button).
 
-### 4.2 Modell-Layer-Content (`ui.model_layers` / `ModelLayerContent`)
+### 4.2 Modell-Layer-Content (`ui.model_layers` / `ModelLayerContent`) und Kino-Favoriten-Auswahl
 
 - Seiten-IDs im Format `model::{model_layer_id}` (z.B. `model::conv1`, `model::layer1`, `model::layer2`, …).
 - Content-Struktur basiert auf der in `config.models` definierten Dataclass `ModelLayerContent`.
@@ -111,22 +118,31 @@ Ablauf (High-Level):
   - `content: ModelLayerContent = get_model_layer_content(cfg, model_layer_id)`.
     - `get_model_layer_content` stammt aus `config.service` und stellt sicher, dass für jede `model_layer_id`
       ein vollständiges `ModelLayerContent`-Objekt existiert (ggf. mit Defaults).
-- UI-Felder:
-  - `Seitentitel` (`content.title`):
-    - Überschrift der Modell-Layer-Seite (z.B. in der Kino-View oder anderen Frontends).
-  - `Subtitle (Kamera-Ansicht)` (`content.subtitle`):
-    - Kurze Unterzeile, die z.B. in einer Kamera-Ansicht oder neben Visualisierungen verwendet werden kann.
-  - `Beschreibung (Erklärungstext)` (`content.description`):
-    - Ausführlicher Erläuterungstext für Besucher:innen (Laien-taugliche Erklärung des Layers).
-- Schreiben in die Config:
-  - Der Editor erzeugt für den jeweiligen `model_layer_id`-Key einen neuen `ModelLayerContent`:
-    - `cfg.ui.model_layers[model_layer_id] = ModelLayerContent(title=new_title, subtitle=new_subtitle or None, description=new_description)`.
-  - Damit werden Änderungen direkt in die zentrale `ExhibitConfig`-Struktur geschrieben
-    und beim Speichern mit `save_config(cfg)` persistiert.
+- UI-Felder für Text-Content:
+  - `Seitentitel` (`content.title`).
+  - `Subtitle (Kamera-Ansicht)` (`content.subtitle`).
+  - `Beschreibung (Erklärungstext)` (`content.description`).
+- Zusätzlich: **Kino-Favoriten-Auswahl pro `model_layer_id`**
+  - Unterhalb der Textfelder zeigt die Content-View eine Sektion „Kino-Favoriten-Auswahl für diesen Modell-Layer“.
+  - Sie nutzt `list_all_favorites_for_model_layer(cfg, model_layer_id)`, um alle vorhandenen Favoriten anzuzeigen,
+    deren Preset `model_layer_id` entspricht.
+  - Für jeden Favoriten wird eine Checkbox gerendert:
+    - Label z.B. `"Favorit im Kino anzeigen: {name}"`.
+    - Der anfängliche Checkbox-Zustand ergibt sich aus `cfg.ui.kivy_favorites.get(model_layer_id, [])`.
+  - Die aktuelle Auswahl (Liste der angehakten Favoritennamen) wird im Streamlit-Session-State zwischengespeichert,
+    damit sie beim Klick auf „Konfiguration speichern“ ausgewertet werden kann.
+- Speichern der Auswahl:
+  - Beim Klick auf den globalen Button „Konfiguration speichern“ wird geprüft, ob eine Auswahl für den aktuell
+    bearbeiteten `model_layer_id` im Session-State liegt.
+  - Ist dies der Fall, wird die Anzahl der ausgewählten Favoriten gegen `MAX_FAVORITES_PER_MODEL_LAYER` geprüft:
+    - Bei mehr als `MAX_FAVORITES_PER_MODEL_LAYER` wird ein Fehler angezeigt und das Speichern abgebrochen.
+    - Ansonsten wird `set_selected_kivy_favorites(cfg, model_layer_id, names)` aufgerufen, das die Auswahl in
+      `cfg.ui.kivy_favorites[model_layer_id]` schreibt.
+  - Anschließend wird `save_config(cfg)` aufgerufen und ein Erfolgshinweis angezeigt.
 - Beziehung zu anderen Komponenten:
-  - **Feature-View** speichert in Favoriten, welche `model_layer_id` für eine Visualisierung verwendet wird.
-  - **Kino-View** (geplant/teilweise): liest pro `model_layer_id` die passenden `ModelLayerContent`-Texte und die Favoriten-Visualisierungen.
-  - Die Content-View ist der primäre Ort, um diese Texte kuratiert einzupflegen.
+  - **Feature-View**: definiert und verwaltet die eigentlichen Favoriten (Name + Preset) in `metadata.favorites`.
+  - **Kino-View**: liest die Auswahl aus `ui.kivy_favorites` über `get_selected_kivy_favorites` und zeigt genau diese
+    Favoriten pro `model_layer_id` an.
 
 ### 4.3 Klassische UI-Layer-Seiten (`LayerUIConfig`)
 
@@ -233,4 +249,4 @@ Ablauf (High-Level):
 
 ---
 
-*Zuletzt geprüft: Stand 2025-11-22 (basierend auf `ui_admin_streamlit/content_view.py` und aktueller Config-/Core-Implementierung).*
+*Zuletzt geprüft: Stand 2025-11-23 (basierend auf `ui_admin_streamlit/content_view.py` und aktueller Config-/Core-Implementierung).*

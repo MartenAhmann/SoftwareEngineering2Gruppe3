@@ -2,7 +2,8 @@
 
 ## 1. Rolle im Gesamtsystem
 
-- Die Feature-View ist ein Streamlit-View im Admin-Panel (`ui_admin_streamlit`), die das Verhalten eines CNN (ResNet18) anhand eines Kamerasnapshots visualisiert.
+- Die Feature-View ist ein Streamlit-View im Admin-Panel (`ui_admin_streamlit`), die das Verhalten eines CNN (ResNet18)
+  anhand eines Kamerasnapshots visualisiert **und Favoriten (Presets) pro UI-Layer verwaltet**.
 - Einstieg erfolgt über `ui_admin_streamlit/app.py`:
   - `from ui_admin_streamlit.feature_view import render as render_feature`
   - Im Navigation-Dispatcher wird bei Auswahl "feature view" `render_feature()` aufgerufen.
@@ -194,24 +195,20 @@ Verzeichnis: `ui_admin_streamlit/feature_view`
 3. Nutzer:in verändert beliebig die UI-Einstellungen (Blend-Mode, Colormap, Overlay, Alpha, Channels, Top-K, Modell-Layer).
 4. Zum Speichern klickt Nutzer:in auf "Als Favorit speichern/aktualisieren":
    - Der aktuelle `st_data`-Zustand wird via `_current_preset_dict()` in ein Preset-Dict übertragen.
-   - `upsert_favorite` schreibt dieses Preset (per Name) in die Config.
+   - `upsert_favorite` schreibt dieses Preset (per Name) in die Config (`metadata.favorites` des aktuellen UI-Layers).
    - `editing_favorite_name` wird auf den gespeicherten Namen gesetzt (Bearbeitungsmodus bleibt aktiv).
 5. Optional kann Nutzer:in später denselben oder einen anderen Favoriten erneut laden – wieder explizit über den Button.
 
-**Wichtig:**
-- Es gibt keinen impliziten Autoload eines Favoriten mehr basierend auf dem Selectbox-Wert allein.
-- Änderungen an Channels (Hinzufügen/Entfernen) oder anderen UI-Controls bleiben stabil im aktuellen `st_data`,
-  solange kein neues "Favorit laden"-Event ausgelöst wird.
+**Rollenabgrenzung:**
+- **Feature-View**:
+  - Zuständig für das **Anlegen, Bearbeiten und Löschen** von Favoriten (Name + Preset) pro UI-Layer.
+  - Speichert Favoriten in `ui.layers[*].metadata.favorites` (rohes JSON über `load_raw_config_dict` / `save_raw_config_dict`).
+  - Trifft **keine** Entscheidung darüber, welche Favoriten im Kino-View aktiv sind.
+- **Content-View**:
+  - Zuständig für die Auswahl, **welche** Favoriten pro `model_layer_id` im Kivy-Kino-View angezeigt werden.
+  - Speichert diese Auswahl in `ui.kivy_favorites[model_layer_id]` (max. `MAX_FAVORITES_PER_MODEL_LAYER` Einträge).
+- **Kino-View**:
+  - Nutzt `ui.kivy_favorites` und `metadata.favorites`, um genau die im Content-Editor ausgewählten Favoriten pro
+    `model_layer_id` anzuzeigen und im Live-Modus zu verwenden.
 
-## 6. Beziehung zu modell-layer-basiertem Content und Kino-View
-
-- Die Feature-View bleibt die technische Analyse- und Debug-Ansicht für Modell-Layer und deren Aktivierungen.
-- Die im Favoriten-Preset gespeicherte `model_layer_id` wird nun zusätzlich genutzt von:
-  - `config.service.get_favorites_for_model_layer(...)` (lesende Sicht für Kino-View).
-  - `ui_kino_kivy.app.ExhibitRoot` (Anzeige von bis zu drei Favoriten pro Modell-Layer-Seite).
-- Der eigentliche Text-Content (Titel, Subtitle, Beschreibung) für die Modell-Layer-Seiten liegt **nicht** in der Feature-View, sondern in der gemeinsamen Config-Struktur `ui.model_layers[model_layer_id]` und wird über den Content-Editor gepflegt.
-- Wichtig für Konsistenz:
-  - Feature-View: wählt und speichert `model_layer_id` in Favoriten.
-  - Content-Editor: pflegt Texte zu denselben `model_layer_id`s.
-  - Kino-View: liest sowohl `model_layer_id` aus Favoriten als auch Content aus `ui.model_layers`.
-  - Alle drei Sichten basieren auf derselben Modell-Layer-Liste aus `core.model_engine.ModelEngine.get_active_layers()`.
+*Zuletzt geprüft: Stand 2025-11-23 (basierend auf `ui_admin_streamlit/feature_view` und aktueller Config-/Core-Implementierung).*
