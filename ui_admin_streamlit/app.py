@@ -20,7 +20,7 @@ def main():
     # Kinomodus starten
     # ------------------------------
     project_root = Path(__file__).resolve().parent.parent
-    kino_rel_path = Path("ui_kino_kivy") / "app.py"
+    kino_rel_path = Path("ui_kino_pyqt") / "app.py"
 
     if st.button("Kinomodus starten"):
         try:

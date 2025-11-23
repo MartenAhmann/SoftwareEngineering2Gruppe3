@@ -1,0 +1,1 @@
+streamlit run %~dp0\ui_admin_streamlit\app.py
