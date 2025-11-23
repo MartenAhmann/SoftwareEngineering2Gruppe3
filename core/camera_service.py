@@ -92,7 +92,7 @@ def detect_cameras(max_tested: int = 5) -> List[int]:
     return cams
 
 
-def take_snapshot(cam_id: int, timeout: float = 5.0) -> Tuple[np.ndarray | None, str]:
+def take_snapshot(cam_id: int, timeout: float = 30.0) -> Tuple[np.ndarray | None, str]:
     """Nimmt ein einzelnes Bild von der angegebenen Kamera auf.
 
     Args:
